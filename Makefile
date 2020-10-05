@@ -1,4 +1,4 @@
-CXXFLAGS ?= -std=c++17 -g -O2 -march=native
+CXXFLAGS ?= -std=c++17 -g -O2 -march=native -Wall -Wextra
 
 all : test_data particles
 

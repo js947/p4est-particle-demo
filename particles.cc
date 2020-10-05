@@ -49,10 +49,6 @@ void read_initial(p4est_t *p4est, p4est_topidx_t which_tree, p4est_quadrant_t *q
   xs = quad_boundaries(p4est, which_tree, q);
   point_t xmin = xs.first;
   point_t xmax = xs.second;
-  printf("read_initial xmin %f %f\n", xmin[0], xmin[1]);
-  printf("read_initial xmax %f %f\n", xmax[0], xmax[1]);
-
-  printf("read_initial reading %s\n", ctx->filename.c_str());
 
   std::ifstream input(ctx->filename);
   std::string str;
@@ -65,29 +61,55 @@ void read_initial(p4est_t *p4est, p4est_topidx_t which_tree, p4est_quadrant_t *q
     if (point_in(x, xmin, xmax))
       particles->push_back(x);
   }
-  printf("read_initial found %zu\n", particles->size());
+  printf("read x [%f %f] y [%f %f] => %zu\n", xmin[0], xmax[0], xmin[1], xmax[1], particles->size());
 }
 
 void replace_quads(p4est_t * p4est, p4est_topidx_t which_tree,
                      int num_outgoing, p4est_quadrant_t * outgoing[],
                      int num_incoming, p4est_quadrant_t * incoming[]) {
-  printf("replace_quads %d => %d\n", num_outgoing, num_incoming);
-  for (size_t j = 0; j < num_incoming; ++j) {
+  for (int j = 0; j < num_incoming; ++j) {
     auto [xmin, xmax] = quad_boundaries(p4est, which_tree, incoming[j]);
     if (!particles(incoming[j]))
       incoming[j]->p.user_data = (void*) new data_t();
     assert(particles(incoming[j]));
-    for (size_t i = 0; i < num_outgoing; ++i) {
+    for (int i = 0; i < num_outgoing; ++i) {
       assert(particles(outgoing[i]));
       for (auto x : *particles(outgoing[i]))
         if (point_in(x, xmin, xmax))
           particles(incoming[j])->push_back(x);
     }
   }
+
+  size_t outgoing_total = 0;
+  for (int i = 0; i < num_outgoing; ++i) {
+    outgoing_total += particles(outgoing[i])->size();
+    auto [xmin, xmax] = quad_boundaries(p4est, which_tree, outgoing[i]);
+    printf("replace_quads old[%d] x [%f %f] y [%f %f] => %zu\n", i,
+        xmin[0], xmax[0],
+        xmin[1], xmax[1],
+        particles(outgoing[i])->size());
+  }
+  size_t incoming_total = 0;
+  for (int i = 0; i < num_incoming; ++i) {
+    incoming_total += particles(incoming[i])->size();
+    auto [xmin, xmax] = quad_boundaries(p4est, which_tree, incoming[i]);
+    printf("replace_quads new[%d] x [%f %f] y [%f %f] => %zu\n", i,
+        xmin[0], xmax[0],
+        xmin[1], xmax[1],
+        particles(incoming[i])->size());
+  }
+  printf("replace_quads total %d %zu -> %d %zu\n",
+      num_outgoing, outgoing_total,
+      num_incoming, incoming_total);
+
+  assert(outgoing_total == incoming_total);
+
+  for (int i = 0; i < num_outgoing; ++i) {
+    particles(outgoing[i])->clear();
+  }
 }
 
-int refine_flag(p4est_t * p4est, p4est_topidx_t which_tree, p4est_quadrant_t * q) {
-  printf("particle count %lu\n", particles(q)->size());
+int refine_flag(p4est_t *, p4est_topidx_t, p4est_quadrant_t * q) {
   return particles(q)->size() > 8;
 }
 
@@ -158,8 +180,8 @@ int main(int argc, char **argv) {
 
   p4est_t *p4est = p4est_new_ext (mpicomm, conn, 0, 3, 1, sizeof(data_t), read_initial, (void *)&read_initial_ctx);
 
-  //p4est_refine_ext (p4est, 0, 2, refine_flag, NULL, replace_quads);
-  //p4est_balance_ext (p4est, P4EST_CONNECT_FACE, NULL, replace_quads);
+  p4est_refine_ext (p4est, 1, 5, refine_flag, NULL, replace_quads);
+  p4est_balance_ext (p4est, P4EST_CONNECT_CORNER, NULL, replace_quads);
   write_output(p4est, (argc > 2) ? argv[2] : "particles.vtk");
 
   p4est_connectivity_destroy (conn);
